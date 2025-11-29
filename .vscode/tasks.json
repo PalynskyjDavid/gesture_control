@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-B",
+                "build",
+                "-S",
+                ".",
+                "-G",
+                "Visual Studio 17 2022"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+                "--config",
+                "Debug"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Python gesture server",
+            "type": "shell",
+            "command": "py",
+            "args": [
+                "-3.10",
+                "gesture_server.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/python"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

@@ -1,0 +1,50 @@
+# Build folders
+build/
+build-*/
+
+# Python cache
+__pycache__/
+
+# Compiled objects and libs
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Executables and debug info
+*.exe
+*.pdb
+*.ilk
+*.idb
+
+# Qt generated files
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.qm
+*.pro.user
+*.qbs.user
+
+# IDE settings
+# .vscode/
+.idea/
+*.suo
+*.user
+*.userprefs
+*.opensdf
+*.opendb
+*.VC.db
+ipch/
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db

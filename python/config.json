@@ -1,0 +1,27 @@
+{
+    "tracker": {
+        "model_complexity": 1,
+        "min_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "max_num_hands": 2
+    },
+    "classifier": {
+        "history_len": 4,
+        "swipe_speed_thresh": 1.0,
+        "zoom_speed_thresh": 0.15,
+        "drag_speed_thresh": 0.05,
+        "pinch_distance_threshold": 0.08,
+        "pinch_thumb_angle_thresh": 50
+    },
+    "multi_hand": {
+        "enable_two_hand_zoom": true,
+        "two_hand_zoom_window": 4,
+        "two_hand_zoom_thresh": 0.03
+    },
+    "debug": {
+        "draw_landmarks": true,
+        "draw_text_overlay": true,
+        "show_fps": true,
+        "fps_window": 20
+    }
+}

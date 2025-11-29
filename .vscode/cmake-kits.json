@@ -1,0 +1,7 @@
+[
+    {
+        "name": "MSVC 2022 (Visual Studio Build Tools)",
+        "visualStudio": "Visual Studio Build Tools 2022",
+        "visualStudioArchitecture": "x64"
+    }
+]
