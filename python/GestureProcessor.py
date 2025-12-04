@@ -160,6 +160,7 @@ class GestureProcessor:
 
                     hand_info = {
                         "handedness": handedness,
+                        "visible": True,
                         "gesture": gesture,
                         "confidence": 1.0,  # Placeholder
                         "wrist": {

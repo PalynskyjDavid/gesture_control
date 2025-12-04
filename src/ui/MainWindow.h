@@ -58,4 +58,5 @@ private:
     GestureEngine *gestureEngine_ = nullptr;
 
     QMap<QString, QString> gestureBindings_;
+    QMap<QString, HandInfo> lastHands_;
 };

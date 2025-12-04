@@ -119,21 +119,35 @@ void GestureEngine::processJson(const QString &jsonStr)
     {
         const QJsonObject obj = val.toObject();
         HandInfo h;
-        h.handedness = obj["handedness"].toString();
-        h.visible = obj["visible"].toBool();
-        h.gesture = obj["gesture"].toString();
-        h.confidence = float(obj["confidence"].toDouble());
-        h.pinchDistance = float(obj["pinch_distance"].toDouble());
-        h.thumbAngle = float(obj["thumb_angle"].toDouble());
+        h.handedness = obj.value("handedness").toString();
 
-        const QJsonArray curlsArr = obj["curls"].toArray();
-        for (int i = 0; i < 4 && i < curlsArr.size(); ++i)
-            h.curls[i] = curlsArr[i].toBool();
+        // Default to true if the hand is present in the list, as the Python side might omit it.
+        h.visible = obj.value("visible").toBool(true);
+
+        // Convert gesture to lowercase to match C++ binding keys (e.g., "FIST" -> "fist").
+        h.gesture = obj.value("gesture").toString().toLower();
+
+        h.confidence = float(obj.value("confidence").toDouble(1.0));
+        h.pinchDistance = float(obj.value("pinch_distance").toDouble(0.0));
+        h.thumbAngle = float(obj.value("thumb_angle").toDouble(0.0));
+
+        // Safely handle the 'curls' array if it's missing.
+        if (obj.contains("curls") && obj.value("curls").isArray())
+        {
+            const QJsonArray curlsArr = obj.value("curls").toArray();
+            for (int i = 0; i < 4 && i < curlsArr.size(); ++i)
+                h.curls[i] = curlsArr[i].toBool();
+        }
+        else
+        {
+            for (int i = 0; i < 4; ++i)
+                h.curls[i] = false; // Default to not curled
+        }
 
         const QJsonObject wrist = obj["wrist"].toObject();
-        h.wristX = float(wrist["x"].toDouble());
-        h.wristY = float(wrist["y"].toDouble());
-        h.wristZ = float(wrist["z"].toDouble());
+        h.wristX = float(wrist.value("x").toDouble());
+        h.wristY = float(wrist.value("y").toDouble());
+        h.wristZ = float(wrist.value("z").toDouble(0.0)); // Default Z to 0 if missing
 
         hands.append(h);
     }
@@ -148,7 +162,7 @@ void GestureEngine::processJson(const QString &jsonStr)
     {
         if (!hand.visible)
             continue;
-        if (hand.gesture.isEmpty() || hand.gesture == "none")
+        if (hand.gesture.isEmpty() || hand.gesture == "none" || hand.gesture == "unknown")
             continue;
 
         if (!gestureFound || hand.confidence > bestConfidence)

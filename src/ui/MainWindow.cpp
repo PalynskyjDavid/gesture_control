@@ -370,36 +370,93 @@ void MainWindow::onConnectionStatusChanged(const QString &status)
 
 void MainWindow::onHandsUpdated(const QVector<HandInfo> &hands)
 {
-    if (hands.isEmpty())
-        return;
-
-    for (const HandInfo &h : hands)
+    // --- Step 1: Create a map of current hands for easy lookup ---
+    QMap<QString, HandInfo> currentHands;
+    for (const auto &hand : hands)
     {
-        if (!h.visible || h.confidence < 0.5f)
-            continue;
-
-        QString key = h.handedness + ":" + h.gesture;
-        QString action = gestureBindings_.value(key, "None");
-
-        // Always move cursor when visible
-        if (action == "Move mouse")
+        if (hand.visible && hand.confidence > 0.5f)
         {
-            int w = QGuiApplication::primaryScreen()->geometry().width();
-            int hgt = QGuiApplication::primaryScreen()->geometry().height();
+            currentHands[hand.handedness] = hand;
+        }
+    }
 
-            inputSim_->moveAbsolute(
-                int(h.wristX * w),
-                int(h.wristY * hgt));
+    // --- Step 2: Continuous Mouse Movement ---
+    // Prioritize "Right" hand for mouse control, but fall back to any hand.
+    const HandInfo *mouseHand = nullptr;
+    if (currentHands.contains("Right"))
+    {
+        mouseHand = &currentHands["Right"];
+    }
+    else if (!currentHands.isEmpty())
+    {
+        mouseHand = &currentHands.first();
+    }
+
+    if (mouseHand)
+    {
+        // Absolute positioning with smoothing
+        static QMap<QString, QPointF> smoothPos;
+        const QString &handedness = mouseHand->handedness;
+
+        if (!smoothPos.contains(handedness)) {
+            smoothPos[handedness] = QPointF(mouseHand->wristX, mouseHand->wristY);
         }
 
-        // Clicks
-        if (action == "Left click")
-            inputSim_->leftClick();
-        else if (action == "Right click")
-            inputSim_->rightClick();
-        else if (action == "Double click")
-            inputSim_->doubleClick();
+        const float ALPHA = 0.3f;
+        QPointF &sp = smoothPos[handedness];
+        sp.setX(ALPHA * mouseHand->wristX + (1.0f - ALPHA) * sp.x());
+        sp.setY(ALPHA * mouseHand->wristY + (1.0f - ALPHA) * sp.y());
+
+        int screenWidth = QGuiApplication::primaryScreen()->geometry().width();
+        int screenHeight = QGuiApplication::primaryScreen()->geometry().height();
+
+        // Prevent mouse from being stuck at the edge if hand is lost and reacquired
+        if (lastHands_.find(handedness) == lastHands_.end()) {
+             sp = QPointF(mouseHand->wristX, mouseHand->wristY);
+        }
+
+        inputSim_->moveAbsolute(int(sp.x() * screenWidth), int(sp.y() * screenHeight));
     }
+
+
+    // --- Step 3: Discrete Gesture Actions (Clicks, Scrolls) ---
+    for (auto const &handedness : currentHands.keys())
+    {
+        const HandInfo &currentHand = currentHands[handedness];
+        const HandInfo lastHand = lastHands_.value(handedness); // Default-constructed if not found
+
+        const bool gestureJustStarted = (currentHand.gesture != "unknown" && currentHand.gesture != lastHand.gesture);
+
+        if (gestureJustStarted)
+        {
+            const QString key = makeBindingKey(currentHand.handedness, currentHand.gesture);
+            const QString action = gestureBindings_.value(key, "None");
+
+            if (action == "Left click")
+            {
+                inputSim_->leftClick();
+            }
+            else if (action == "Right click")
+            {
+                inputSim_->rightClick();
+            }
+            else if (action == "Double click")
+            {
+                inputSim_->doubleClick();
+            }
+            else if (action == "Scroll up")
+            {
+                inputSim_->scroll(120); // One-shot scroll
+            }
+            else if (action == "Scroll down")
+            {
+                inputSim_->scroll(-120); // One-shot scroll
+            }
+        }
+    }
+    
+    // --- Step 4: Update last known state for the next frame ---
+    lastHands_ = currentHands;
 }
 
 void MainWindow::openSettingsDialog()

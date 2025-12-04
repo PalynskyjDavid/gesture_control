@@ -18,6 +18,8 @@
 #include <QJsonValue>
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -133,6 +135,9 @@ void MainWindow::setupConnections()
     connect(&gestureEngine_, &GestureEngine::gestureDetected,
             this, &MainWindow::onGestureDetected);
 
+    connect(&gestureEngine_, &GestureEngine::handsUpdated,
+            this, &MainWindow::onHandsUpdated);
+
     connect(&gestureEngine_, &GestureEngine::connectionStatusChanged,
             this, &MainWindow::onConnectionStatusChanged);
 }
@@ -231,6 +236,7 @@ void MainWindow::onTrackingToggled(bool checked)
     {
         gestureEngine_.stop();
         statusLabel_->setText(tr("Tracking disabled"));
+        resetCursorTracking();
     }
 }
 
@@ -256,6 +262,21 @@ void MainWindow::onGestureDetected(const QString &gestureName)
         inputSim_.scroll(-120);
     else if (actionName == "Move mouse (demo)")
         inputSim_.moveRelative(20, 0);
+}
+
+void MainWindow::onHandsUpdated(const QVector<HandInfo> &hands)
+{
+    if (!trackingCheckBox_ || !trackingCheckBox_->isChecked())
+        return;
+
+    const HandInfo *primaryHand = selectPrimaryHand(hands);
+    if (!primaryHand)
+    {
+        resetCursorTracking();
+        return;
+    }
+
+    updateCursorFromHand(*primaryHand);
 }
 
 void MainWindow::onConnectionStatusChanged(const QString &status)
@@ -388,4 +409,68 @@ void MainWindow::onTrayQuit()
 {
     trayIcon_->hide();
     qApp->quit();
+}
+
+const HandInfo *MainWindow::selectPrimaryHand(const QVector<HandInfo> &hands) const
+{
+    const HandInfo *rightHand = nullptr;
+    const HandInfo *bestAny = nullptr;
+
+    for (const HandInfo &hand : hands)
+    {
+        if (!hand.visible)
+            continue;
+
+        if (!bestAny || hand.confidence > bestAny->confidence)
+            bestAny = &hand;
+
+        if (hand.handedness.compare("Right", Qt::CaseInsensitive) == 0)
+        {
+            if (!rightHand || hand.confidence > rightHand->confidence)
+                rightHand = &hand;
+        }
+    }
+
+    return rightHand ? rightHand : bestAny;
+}
+
+void MainWindow::updateCursorFromHand(const HandInfo &hand)
+{
+    QScreen *screen = QGuiApplication::primaryScreen();
+    if (!screen)
+        return;
+
+    const QSize screenSize = screen->geometry().size();
+    if (screenSize.width() <= 0 || screenSize.height() <= 0)
+        return;
+
+    const double nx = qBound(0.0, static_cast<double>(hand.wristX), 1.0);
+    const double ny = qBound(0.0, static_cast<double>(hand.wristY), 1.0);
+    const QPointF normalized(nx, ny);
+
+    if (!cursorInitialized_)
+    {
+        cursorFiltered_ = normalized;
+        cursorInitialized_ = true;
+    }
+    else
+    {
+        cursorFiltered_.setX(cursorSmoothingFactor_ * normalized.x() +
+                             (1.0 - cursorSmoothingFactor_) * cursorFiltered_.x());
+        cursorFiltered_.setY(cursorSmoothingFactor_ * normalized.y() +
+                             (1.0 - cursorSmoothingFactor_) * cursorFiltered_.y());
+    }
+
+    const int px = qBound(0, static_cast<int>(cursorFiltered_.x() * screenSize.width()),
+                          screenSize.width() - 1);
+    const int py = qBound(0, static_cast<int>(cursorFiltered_.y() * screenSize.height()),
+                          screenSize.height() - 1);
+
+    inputSim_.moveAbsolute(px, py);
+}
+
+void MainWindow::resetCursorTracking()
+{
+    cursorInitialized_ = false;
+    cursorFiltered_ = QPointF(0.5, 0.5);
 }

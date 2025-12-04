@@ -9,6 +9,7 @@
 #include <QCheckBox>
 #include <QSystemTrayIcon>
 #include <QMenu>
+#include <QPointF>
 
 #include "GestureEngine.h"
 #include "InputSimulator.h"
@@ -30,6 +31,7 @@ private slots:
     void onTestActionClicked();
     void onTrackingToggled(bool checked);
     void onGestureDetected(const QString &gestureName);
+    void onHandsUpdated(const QVector<HandInfo> &hands);
     void onConnectionStatusChanged(const QString &status);
 
     void onSaveProfile();
@@ -44,6 +46,9 @@ private:
     void setupConnections();
     void loadDefaultGestures();
     void applyBinding(const QString &gestureName, const QString &actionName);
+    const HandInfo *selectPrimaryHand(const QVector<HandInfo> &hands) const;
+    void updateCursorFromHand(const HandInfo &hand);
+    void resetCursorTracking();
 
 private:
     // UI
@@ -64,4 +69,9 @@ private:
 
     // gestureName -> actionName
     QMap<QString, QString> gestureBindings_;
+
+    // cursor tracking state
+    QPointF cursorFiltered_{0.5, 0.5};
+    bool cursorInitialized_ = false;
+    double cursorSmoothingFactor_ = 0.35;
 };
