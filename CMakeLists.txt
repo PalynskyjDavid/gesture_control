@@ -10,16 +10,14 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # Find Qt
-find_package(Qt6 COMPONENTS Widgets REQUIRED)
-
-# Find ZeroMQ via vcpkg
-find_package(ZeroMQ CONFIG REQUIRED)
+find_package(Qt6 COMPONENTS Widgets Network REQUIRED)
 
 set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
     src/GestureEngine.cpp
     src/InputSimulator.cpp
+    src/platform/PlatformFactory.cpp
 )
 
 set(HEADERS
@@ -27,6 +25,20 @@ set(HEADERS
     src/GestureEngine.h
     src/InputSimulator.h
 )
+
+if (WIN32)
+    list(APPEND SOURCES
+        src/platform/windows/WindowsInputBackend.cpp
+    )
+elseif (APPLE)
+    list(APPEND SOURCES
+        src/platform/mac/MacInputBackend.cpp
+    )
+else()
+    list(APPEND SOURCES
+        src/platform/linux/LinuxInputBackend.cpp
+    )
+endif()
 
 add_executable(GestureControl
     ${SOURCES}
@@ -36,7 +48,7 @@ add_executable(GestureControl
 target_link_libraries(GestureControl
     PRIVATE
         Qt6::Widgets
-        libzmq
+        Qt6::Network
 )
 
 if (WIN32)

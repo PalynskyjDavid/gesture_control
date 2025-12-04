@@ -1,6 +1,7 @@
 import time
 import mediapipe as mp
 from HandData import HandData
+from helpers import palm_size, wrist_position, finger_direction
 
 
 class HandTracker:
@@ -40,6 +41,18 @@ class HandTracker:
             h.handedness = handed.classification[0].label
             h.visible = True
             h.timestamp = timestamp
+            h.palm_size = palm_size(h.landmarks)
+            h.wrist = wrist_position(h.landmarks)
+
+            finger_map = {
+                "thumb": (4, 3),
+                "index": (8, 7),
+                "middle": (12, 11),
+                "ring": (16, 15),
+                "pinky": (20, 19),
+            }
+            for name, (tip, pip) in finger_map.items():
+                h.direction_vectors[name] = finger_direction(h.landmarks, tip, pip)
             # dt is set by classifier thread (if we want previous timestamp difference we can compute there)
             hands.append(h)
 

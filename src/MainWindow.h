@@ -30,6 +30,7 @@ private slots:
     void onTestActionClicked();
     void onTrackingToggled(bool checked);
     void onGestureDetected(const QString &gestureName);
+    void onConnectionStatusChanged(const QString &status);
 
     void onSaveProfile();
     void onLoadProfile();
@@ -52,6 +53,7 @@ private:
     QPushButton *testButton_ = nullptr;
     QCheckBox *trackingCheckBox_ = nullptr;
     QLabel *statusLabel_ = nullptr;
+    QLabel *connectionLabel_ = nullptr;
 
     QSystemTrayIcon *trayIcon_ = nullptr;
     QMenu *trayMenu_ = nullptr;

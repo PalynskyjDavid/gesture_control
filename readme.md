@@ -9,6 +9,11 @@ This is a complete multi-platform Qt/C++ gesture control application using:
 - **JSON binding persistence**
 - **Smooth wrist tracking + gesture recognition**
 
+Runtime flow: MediaPipe captures gestures in Python, `python/main_loop.py`
+publishes newline-delimited JSON over TCP, the Qt client (`GestureEngine`)
+consumes those packets, and the platform-specific input backend executes the
+bound action.
+
 ---
 
 # 🚀 Build Instructions (Windows)
@@ -18,6 +23,8 @@ This is a complete multi-platform Qt/C++ gesture control application using:
 - Qt 6.6+ (msvc2022_64 build)
 - CMake 3.16+
 - Python 3.10 with:
+
+> **Note:** All Python commands in this project should be run via `py -3.10` to ensure the correct interpreter is used.
 
 
 
@@ -29,7 +36,7 @@ pip install mediapipe opencv-python
 Open **x64 Native Tools Command Prompt for VS 2022**:
 
 ```bash
-cd gesture_control_full_project
+cd gesture_control
 cmake -B build -S . -G "Visual Studio 17 2022"
 cmake --build build --config Debug
 
@@ -39,8 +46,14 @@ build/Debug/gesture_control.exe
 
 
 Running the Hand Tracking Server
-cd python
-py -3.10 gesture_server.py
+cd gesture_control
+py -3.10 gesture_server.py --mode full
+
+(Optional) Legacy smoke test:
+py -3.10 gesture_server.py --mode simple
+
+The Qt client reads its TCP endpoint from `config/client_settings.json`. Adjust
+the `host`/`port` pair there if you run the Python backend on another machine.
 
 
 # 📁 Final Project Structure

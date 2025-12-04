@@ -77,7 +77,7 @@ void MainWindow::setupUi()
     actionCombo_->addItem("Scroll down");
 
     testButton_ = new QPushButton(tr("Test action"), bindGroup);
-    trackingCheckBox_ = new QCheckBox(tr("Enable tracking (demo)"), bindGroup);
+    trackingCheckBox_ = new QCheckBox(tr("Enable tracking"), bindGroup);
 
     bindLayout->addWidget(gestureLabel_);
     bindLayout->addWidget(new QLabel(tr("Action:"), bindGroup));
@@ -109,6 +109,9 @@ void MainWindow::setupUi()
     statusLabel_ = new QLabel(tr("Ready"), this);
     statusBar()->addWidget(statusLabel_);
 
+    connectionLabel_ = new QLabel(tr("Gesture server: idle"), this);
+    statusBar()->addPermanentWidget(connectionLabel_);
+
     setWindowTitle(tr("Gesture Control (Windows demo)"));
     resize(900, 550);
 }
@@ -129,6 +132,9 @@ void MainWindow::setupConnections()
 
     connect(&gestureEngine_, &GestureEngine::gestureDetected,
             this, &MainWindow::onGestureDetected);
+
+    connect(&gestureEngine_, &GestureEngine::connectionStatusChanged,
+            this, &MainWindow::onConnectionStatusChanged);
 }
 
 void MainWindow::loadDefaultGestures()
@@ -218,8 +224,8 @@ void MainWindow::onTrackingToggled(bool checked)
 {
     if (checked)
     {
+        statusLabel_->setText(tr("Connecting to gesture server..."));
         gestureEngine_.start();
-        statusLabel_->setText(tr("Tracking enabled (demo stub)"));
     }
     else
     {
@@ -250,6 +256,12 @@ void MainWindow::onGestureDetected(const QString &gestureName)
         inputSim_.scroll(-120);
     else if (actionName == "Move mouse (demo)")
         inputSim_.moveRelative(20, 0);
+}
+
+void MainWindow::onConnectionStatusChanged(const QString &status)
+{
+    if (connectionLabel_)
+        connectionLabel_->setText(status);
 }
 
 // ---------- JSON profile save/load ----------

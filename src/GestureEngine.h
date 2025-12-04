@@ -1,11 +1,10 @@
 #pragma once
 
 #include <QObject>
-#include <QThread>
-#include <QTimer>
-#include <QString>
+#include <QTcpSocket>
+#include <QVector>
 
-class GestureWorker;
+#include "common/Types.h"
 
 class GestureEngine : public QObject
 {
@@ -13,15 +12,33 @@ class GestureEngine : public QObject
 
 public:
     explicit GestureEngine(QObject *parent = nullptr);
-    ~GestureEngine();
 
     void start();
     void stop();
 
+    void setEndpoint(const QString &host, quint16 port);
+    void setConfigFile(const QString &relativePath);
+
 signals:
+    void connectionStatusChanged(const QString &status);
+    void handsUpdated(const QVector<HandInfo> &hands);
     void gestureDetected(const QString &gestureName);
 
+private slots:
+    void onConnected();
+    void onDisconnected();
+    void onError(QAbstractSocket::SocketError socketError);
+    void onReadyRead();
+
 private:
-    QThread workerThread_;
-    GestureWorker *worker_ = nullptr;
+    void processJson(const QString &jsonStr);
+    void loadConfigIfAvailable();
+    QString resolveConfigPath() const;
+
+    QTcpSocket socket_;
+    QString buffer_;
+    QString host_ = QStringLiteral("127.0.0.1");
+    quint16 port_ = 5555;
+    QString configFile_ = QStringLiteral("config/client_settings.json");
+    QString lastGestureEmitted_;
 };

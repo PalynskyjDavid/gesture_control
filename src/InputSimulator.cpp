@@ -1,75 +1,73 @@
 #include "InputSimulator.h"
 
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
+#include <QDebug>
+
+#include "platform/InputBackend.h"
+#include "platform/PlatformFactory.h"
 
 InputSimulator::InputSimulator(QObject *parent)
     : QObject(parent)
 {
+    ensureBackend();
+}
+
+InputSimulator::~InputSimulator() = default;
+
+bool InputSimulator::isReady() const
+{
+    return backend_ != nullptr;
+}
+
+void InputSimulator::ensureBackend()
+{
+    if (backend_)
+        return;
+
+    backend_.reset(PlatformFactory::createBackend());
+    if (!backend_)
+    {
+        qWarning() << "[InputSimulator] No platform backend available.";
+    }
+}
+
+void InputSimulator::moveAbsolute(int x, int y)
+{
+    ensureBackend();
+    if (backend_)
+        backend_->moveAbsolute(x, y);
 }
 
 void InputSimulator::moveRelative(int dx, int dy)
 {
-#ifdef _WIN32
-    INPUT input = {};
-    input.type = INPUT_MOUSE;
-    input.mi.dx = dx;
-    input.mi.dy = dy;
-    input.mi.dwFlags = MOUSEEVENTF_MOVE;
-    SendInput(1, &input, sizeof(INPUT));
-#else
-    Q_UNUSED(dx)
-    Q_UNUSED(dy)
-#endif
+    ensureBackend();
+    if (backend_)
+        backend_->moveRelative(dx, dy);
 }
 
 void InputSimulator::leftClick()
 {
-#ifdef _WIN32
-    INPUT inputs[2] = {};
-
-    inputs[0].type = INPUT_MOUSE;
-    inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-
-    inputs[1].type = INPUT_MOUSE;
-    inputs[1].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-
-    SendInput(2, inputs, sizeof(INPUT));
-#endif
+    ensureBackend();
+    if (backend_)
+        backend_->leftClick();
 }
 
 void InputSimulator::rightClick()
 {
-#ifdef _WIN32
-    INPUT inputs[2] = {};
-
-    inputs[0].type = INPUT_MOUSE;
-    inputs[0].mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-
-    inputs[1].type = INPUT_MOUSE;
-    inputs[1].mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-
-    SendInput(2, inputs, sizeof(INPUT));
-#endif
+    ensureBackend();
+    if (backend_)
+        backend_->rightClick();
 }
 
 void InputSimulator::doubleClick()
 {
-    leftClick();
-    leftClick();
+    ensureBackend();
+    if (backend_)
+        backend_->doubleClick();
 }
 
 void InputSimulator::scroll(int delta)
 {
-#ifdef _WIN32
-    INPUT input = {};
-    input.type = INPUT_MOUSE;
-    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
-    input.mi.mouseData = delta; // 120 = one notch
-    SendInput(1, &input, sizeof(INPUT));
-#else
-    Q_UNUSED(delta)
-#endif
+    ensureBackend();
+    if (backend_)
+        backend_->scroll(delta);
 }

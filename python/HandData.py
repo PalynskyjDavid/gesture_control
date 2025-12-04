@@ -24,8 +24,22 @@ class HandData:
         self.pinch_distance = 0.0
         self.thumb_angle = 0.0
         self.curls = [False, False, False, False]  # index..pinky
+        self.curl_scores = [0.0, 0.0, 0.0, 0.0]
+        self.curl_states = ["extended", "extended", "extended", "extended"]
+        self.curl_angles = [0.0, 0.0, 0.0, 0.0]
         self.curled_count = 0
         self.extended_count = 0
+        self.palm_size = 0.0
+        self.direction_vectors = {
+            "thumb": (0.0, 0.0, 0.0),
+            "index": (0.0, 0.0, 0.0),
+            "middle": (0.0, 0.0, 0.0),
+            "ring": (0.0, 0.0, 0.0),
+            "pinky": (0.0, 0.0, 0.0),
+        }
+        self.pinch_strength = 0.0
+        self.pinch_confidence = 0.0
+        self.pinch_components = {"tip": 0.0, "depth": 0.0, "angle": 0.0}
 
         # wrist position normalized 0..1
         self.wrist = {"x": 0.0, "y": 0.0, "z": 0.0}
@@ -42,10 +56,20 @@ class HandData:
             "gesture": self.gesture,
             "confidence": self.confidence,
             "pinch_distance": self.pinch_distance,
+            "pinch_strength": self.pinch_strength,
+            "pinch_confidence": self.pinch_confidence,
+            "pinch_components": self.pinch_components,
             "thumb_angle": self.thumb_angle,
             "curls": self.curls,
+            "curl_scores": self.curl_scores,
+            "curl_states": self.curl_states,
+            "curl_angles": self.curl_angles,
             "curled_count": self.curled_count,
             "extended_count": self.extended_count,
+            "palm_size": self.palm_size,
+            "direction_vectors": {
+                name: list(vec) for name, vec in self.direction_vectors.items()
+            },
             "wrist": self.wrist,
             "timestamp": self.timestamp,
             "dt": self.dt,

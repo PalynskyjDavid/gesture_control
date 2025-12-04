@@ -2,18 +2,31 @@ import time
 import cv2
 import threading
 from queue import Queue, Empty
-from collections import deque
+from collections import deque, defaultdict
 
 from HandTracker import HandTracker
 from GestureClassifier import GestureClassifier
 from GestureServer import GestureServer
-from helpers import draw_hand_debug, load_config, ConfigWatcher
+from helpers import (
+    draw_hand_debug,
+    draw_joint_angle_labels,
+    load_config,
+    ConfigWatcher,
+)
+from Boundaries import (
+    build_and_draw_tilted_plane,
+    # point_above_plane,
+    # draw_debug_reference_plane,
+    annotate_fingertip_plane_status,
+)
+from Angles import FingerAngleBuffer, compute_smoothed_finger_angles
 
 
 # --------------------------------------------------------
 # Queue for latest frame only (overwrite when full)
 # --------------------------------------------------------
 FRAME_QUEUE_MAX = 1
+ANGLE_BUFFERS = defaultdict(lambda: FingerAngleBuffer(size=5))
 
 
 # --------------------------------------------------------
@@ -27,9 +40,10 @@ def capture_thread(frame_queue, stop_event, cfg):
         return
 
     tracker = HandTracker(cfg)
+    debug_cfg = cfg.get("debug", {})
 
     # FPS calculation
-    fps_window = cfg["debug"].get("fps_window", 20)
+    fps_window = debug_cfg.get("fps_window", 20)
     fps_times = deque(maxlen=fps_window)
     current_fps = 0.0
 
@@ -71,45 +85,7 @@ def capture_thread(frame_queue, stop_event, cfg):
         except Exception:
             pass
 
-        # -------------------------------
-        # Debug drawing
-        # -------------------------------
-        if cfg["debug"].get("draw_landmarks", True):
-            if hands:
-                for i, h in enumerate(hands):
-                    draw_hand_debug(frame, h, offset_y=i * 180)
-            else:
-                cv2.putText(
-                    frame,
-                    "No hands",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    (0, 0, 255),
-                    2,
-                )
-
-        # FPS text overlay
-        if cfg["debug"].get("show_fps", True):
-            cv2.putText(
-                frame,
-                f"FPS: {current_fps:.1f}",
-                (10, frame.shape[0] - 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 0),
-                2,
-            )
-
-        cv2.imshow("Gesture Debug", frame)
-
-        # ESC to quit
-        if cv2.waitKey(1) & 0xFF == 27:
-            stop_event.set()
-            break
-
     cap.release()
-    cv2.destroyAllWindows()
     print("[PY] Capture thread exiting.")
 
 
@@ -117,17 +93,25 @@ def capture_thread(frame_queue, stop_event, cfg):
 # CLASSIFIER THREAD
 # --------------------------------------------------------
 def classifier_thread(frame_queue, stop_event, cfg):
-    classifier = GestureClassifier(cfg)
+    cfg_watcher = ConfigWatcher("config.json")
+    current_cfg = cfg_watcher.get_config()
+    if not current_cfg:
+        current_cfg = cfg or {}
+
+    classifier = GestureClassifier(current_cfg)
     server = GestureServer()
 
     last_time_per_hand = {}  # handedness → timestamp of last classification
-
-    cfg_watcher = ConfigWatcher("config.json")
-    cfg = cfg_watcher.get_config()
-    classifier = GestureClassifier(cfg)
-    server = GestureServer()
+    debug_window = "Gesture Debug"
+    camera_cfg = current_cfg.get("camera", {})
+    frame_width = camera_cfg.get("frame_width", 1920)
+    frame_height = camera_cfg.get("frame_height", 1080)
+    cv2.namedWindow(debug_window, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(debug_window, frame_width, frame_height)
 
     print("[PY] Classifier thread started.")
+
+    buffer = FingerAngleBuffer(size=5)
 
     while not stop_event.is_set():
         try:
@@ -136,9 +120,9 @@ def classifier_thread(frame_queue, stop_event, cfg):
             continue
 
         new_cfg = cfg_watcher.check_reload()
-        if new_cfg != cfg:
-            cfg = new_cfg
-        classifier.update_config(cfg)
+        if new_cfg and new_cfg != current_cfg:
+            current_cfg = new_cfg
+        classifier.update_config(current_cfg)
 
         # Update correct dt per hand
         for h in hands:
@@ -150,7 +134,77 @@ def classifier_thread(frame_queue, stop_event, cfg):
 
             last_time_per_hand[key] = h.timestamp
 
-            classifier.classify_hands(hands)
+        classifier.classify_hands(hands)
+
+        # -------------------------------
+        # Debug drawing happens after classification so values are populated.
+        # -------------------------------
+        debug_cfg = current_cfg.get("debug", {})
+        if debug_cfg.get("draw_landmarks", True):
+            if hands:
+                for i, h in enumerate(hands):
+                    draw_hand_debug(frame, h, offset_y=i * 180)
+
+                    smoothed = compute_smoothed_finger_angles(
+                        h.landmarks, buffer, handedness=h.handedness
+                    )
+
+                    buffer_key = f"{h.handedness or 'Unknown'}_{i}"
+                    draw_joint_angle_labels(
+                        frame,
+                        h,
+                        ANGLE_BUFFERS[buffer_key],
+                    )
+                    # 1. Build the rotated plane (e.g., -20 degrees tilts it "forward" to cut the fingers)
+                    # plane_pt, plane_normal = build_and_draw_tilted_plane(
+                    #     frame, h, tilt_angle_deg=-20
+                    # )
+
+                    # 2. Check if fingers are Open or Closed relative to that plane
+                    # annotate_fingertip_plane_status(frame, h, plane_pt, plane_normal)
+
+                    # # # plane_point, plane_normal = draw_debug_reference_plane(frame, hand_data=h)
+                    # # # annotate_fingertip_plane_status(frame, h, plane_point, plane_normal)
+
+                    # plane_point, plane_normal = build_and_draw_tilted_plane(
+                    #     frame, h, indexes=[0, 9, 5], tiltPointIndex=0, tiltAngleDeg=20
+                    # )
+                    # Q = h.raw_landmarks.landmark[12]  # fingertip for example
+                    # state = point_above_plane(Q, plane_point, plane_normal)
+
+                    # if state == +1:
+                    #     print("Point is ABOVE the plane")
+                    # elif state == -1:
+                    #     print("Point is BELOW the plane")
+                    # else:
+                    #     print("Point is ON the plane")
+
+            # # # else:
+            # # #     cv2.putText(
+            # # #         frame,
+            # # #         "No hands",
+            # # #         (10, 30),
+            # # #         cv2.FONT_HERSHEY_SIMPLEX,
+            # # #         1.0,
+            # # #         (0, 0, 255),
+            # # #         2,
+            # # #     )
+
+        # # # if debug_cfg.get("show_fps", True):
+        # # #     cv2.putText(
+        # # #         frame,
+        # # #         f"FPS: {fps:.1f}" if fps is not None else "FPS: n/a",
+        # # #         (10, frame.shape[0] - 20),
+        # # #         cv2.FONT_HERSHEY_SIMPLEX,
+        # # #         0.7,
+        # # #         (255, 255, 0),
+        # # #         2,
+        # # #     )
+
+        cv2.imshow(debug_window, frame)
+        if cv2.waitKey(1) & 0xFF == 27:
+            stop_event.set()
+            break
 
         # Send JSON snapshot with FPS
         try:
@@ -160,6 +214,7 @@ def classifier_thread(frame_queue, stop_event, cfg):
             stop_event.set()
             break
 
+    cv2.destroyAllWindows()
     print("[PY] Classifier thread exiting.")
 
 
