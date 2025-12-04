@@ -29,6 +29,10 @@ class HandData:
         self.curl_angles = [0.0, 0.0, 0.0, 0.0]
         self.curled_count = 0
         self.extended_count = 0
+        self.joint_angles = {}
+        self.finger_bends = {}
+        self.finger_states_map = {}
+        self.finger_scores_map = {}
         self.palm_size = 0.0
         self.direction_vectors = {
             "thumb": (0.0, 0.0, 0.0),
@@ -66,6 +70,10 @@ class HandData:
             "curl_angles": self.curl_angles,
             "curled_count": self.curled_count,
             "extended_count": self.extended_count,
+            "joint_angles": self.joint_angles,
+            "finger_bends": self.finger_bends,
+            "finger_states_map": self.finger_states_map,
+            "finger_scores_map": self.finger_scores_map,
             "palm_size": self.palm_size,
             "direction_vectors": {
                 name: list(vec) for name, vec in self.direction_vectors.items()

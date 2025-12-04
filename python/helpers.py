@@ -4,12 +4,9 @@ import mediapipe as mp
 import json
 import os
 import time
+import threading
 
-from Angles import (
-    FINGER_JOINTS,
-    FingerAngleBuffer,
-    compute_smoothed_finger_angles,
-)
+from Angles import FINGER_JOINTS
 
 mp_drawing = mp.solutions.drawing_utils
 mp_styles = mp.solutions.drawing_styles
@@ -82,29 +79,6 @@ def finger_direction(lm, tip, pip):
     return normalize((lm[tip].x - lm[pip].x, lm[tip].y - lm[pip].y, lm[tip].z - lm[pip].z))
 
 
-def finger_joint_angles(lm, tip, dip, pip, mcp):
-    """Return (pip_angle, dip_angle) in degrees using full 3D vectors."""
-    pip_vec_prox = (lm[mcp].x - lm[pip].x, lm[mcp].y - lm[pip].y, lm[mcp].z - lm[pip].z)
-    pip_vec_dist = (lm[dip].x - lm[pip].x, lm[dip].y - lm[pip].y, lm[dip].z - lm[pip].z)
-    dip_vec_prox = (lm[pip].x - lm[dip].x, lm[pip].y - lm[dip].y, lm[pip].z - lm[dip].z)
-    dip_vec_dist = (lm[tip].x - lm[dip].x, lm[tip].y - lm[dip].y, lm[tip].z - lm[dip].z)
-    pip_angle = angle_between_vectors(pip_vec_prox, pip_vec_dist)
-    dip_angle = angle_between_vectors(dip_vec_prox, dip_vec_dist)
-    return pip_angle, dip_angle
-
-
-def finger_curl_state(pip_angle, dip_angle, strong_thresh=90.0, partial_thresh=120.0):
-    """
-    Use sum of PIP+DIP angles to derive qualitative curl state and score.
-    """
-    total = pip_angle + dip_angle
-    if total > strong_thresh:
-        return "curled", 1.0
-    if total > partial_thresh:
-        return "partial", 0.5
-    return "extended", 0.0
-
-
 def normalized_distance(value, scale):
     if scale <= 1e-6:
         return 0.0
@@ -166,31 +140,26 @@ def draw_hand_debug(frame, hand_data, offset_y=0):
 def draw_joint_angle_labels(
     frame,
     hand_data,
-    buffer: FingerAngleBuffer,
     color=(0, 255, 255),
     font_scale=0.35,
     thickness=1,
 ):
     """
     Draw bent-angle values next to each joint defined in FINGER_JOINTS.
-    Expects a persistent FingerAngleBuffer per-hand for smoothing.
+    Expects joint_angles to be populated on hand_data beforehand.
     """
     if (
         frame is None
         or hand_data is None
         or hand_data.raw_landmarks is None
-        or buffer is None
     ):
         return
 
-    lm = hand_data.raw_landmarks.landmark
-    if not lm:
-        return
-
     h, w, _ = frame.shape
-    angles = compute_smoothed_finger_angles(
-        lm, buffer, handedness=hand_data.handedness
-    )
+    angles = getattr(hand_data, "joint_angles", None)
+    lm = hand_data.raw_landmarks.landmark if hand_data.raw_landmarks else None
+    if not angles or not lm:
+        return
 
     for finger_name, joints in FINGER_JOINTS.items():
         finger_angles = angles.get(finger_name, [])
@@ -245,58 +214,78 @@ def load_config(path="config.json"):
 
 class ConfigWatcher:
     """
-    Watches a JSON config file and reloads it when the file changes.
-    Usage:
-        watcher = ConfigWatcher("config.json")
-        cfg = watcher.get_config()        # initial load
-        # later:
-        cfg = watcher.check_reload()      # returns new cfg or same dict
+    Thread-safe singleton that watches a JSON config file and reloads automatically.
+    Calls to get_config() always return the most recently committed configuration without
+    blocking; if a reload is in progress the previous snapshot is returned.
     """
 
-    def __init__(self, path="config.json"):
-        self.path = path
+    _instance = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, path="config.json", check_interval=0.5):
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialize(path, check_interval)
+            else:
+                cls._instance._update_settings(path, check_interval)
+        return cls._instance
+
+    def _initialize(self, path, check_interval):
+        self._path = path
+        self._check_interval = max(0.1, float(check_interval))
+        self._cfg_lock = threading.Lock()
         self._cfg = {}
         self._mtime = 0.0
-        self._last_checked = 0.0
-        self._min_check_interval = 0.5  # seconds between checks
-        self._load()  # load now
+        self._stop_event = threading.Event()
+        self._load_initial()
+        self._thread = threading.Thread(target=self._watch_loop, daemon=True)
+        self._thread.start()
 
-    def _load(self):
+    def _update_settings(self, path, check_interval):
+        if path and path != self._path:
+            self._path = path
+            # Force reload on next tick
+            self._mtime = 0.0
+        if check_interval is not None:
+            self._check_interval = max(0.1, float(check_interval))
+
+    def _load_initial(self):
         try:
-            if not os.path.exists(self.path):
-                self._cfg = {}
-                self._mtime = 0.0
-                return
-            m = os.path.getmtime(self.path)
-            with open(self.path, "r", encoding="utf-8") as f:
-                self._cfg = json.load(f)
-            self._mtime = m
+            self._reload(force=True)
         except Exception as e:
-            print("[ConfigWatcher] failed to load config:", e)
-            self._cfg = {}
+            print("[ConfigWatcher] initial load failed:", e)
+            with self._cfg_lock:
+                self._cfg = {}
+
+    def _watch_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                self._reload()
+            except Exception as e:
+                print("[ConfigWatcher] watch loop error:", e)
+            self._stop_event.wait(self._check_interval)
+
+    def stop(self):
+        self._stop_event.set()
 
     def get_config(self):
-        return self._cfg
-
-    def check_reload(self):
-        """
-        Call frequently (cheap). Will only stat the file every _min_check_interval seconds.
-        Returns current config (reloaded if changed).
-        """
-        now = time.time()
-        if now - self._last_checked < self._min_check_interval:
+        acquired = self._cfg_lock.acquire(blocking=False)
+        if not acquired:
             return self._cfg
-        self._last_checked = now
-
         try:
-            if not os.path.exists(self.path):
-                # file missing -> keep existing config
-                return self._cfg
-            m = os.path.getmtime(self.path)
-            if m != self._mtime:
-                print("[ConfigWatcher] Detected config.json change, reloading...")
-                self._load()
-        except Exception as e:
-            print("[ConfigWatcher] check_reload error:", e)
+            return self._cfg
+        finally:
+            self._cfg_lock.release()
 
-        return self._cfg
+    def _reload(self, force=False):
+        if not os.path.exists(self._path):
+            return
+        m = os.path.getmtime(self._path)
+        if not force and m == self._mtime:
+            return
+        with open(self._path, "r", encoding="utf-8") as f:
+            new_cfg = json.load(f)
+        with self._cfg_lock:
+            self._cfg = new_cfg
+            self._mtime = m

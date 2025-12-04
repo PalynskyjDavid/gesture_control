@@ -5,14 +5,13 @@ from HandData import HandData
 from helpers import (
     dist,
     angle,
-    finger_joint_angles,
     normalized_distance,
     angle_between_vectors,
     clamp01,
     palm_size as compute_palm_size,
     finger_direction,
-    finger_curl_state,
 )
+from HandFeatures import HandFeatureExtractor
 
 
 class GestureClassifier:
@@ -45,6 +44,7 @@ class GestureClassifier:
         self.label_history = defaultdict(list)
         self.wrist_history = defaultdict(list)
         self.pinch_history = defaultdict(list)
+        self.feature_extractor = HandFeatureExtractor()
 
         # EMA maps: handedness -> {label: score}
         self.ema_scores = defaultdict(lambda: defaultdict(float))
@@ -101,6 +101,13 @@ class GestureClassifier:
         # ensure interhand history length
         old = list(getattr(self, "interhand_history", []))
         self.interhand_history = deque(old, maxlen=self.two_hand_zoom_window)
+
+        buffer_len = c.get("joint_angle_buffer", 5)
+        self.feature_extractor.configure(
+            buffer_size=buffer_len,
+            strong_thresh=self.curl_strong_angle,
+            partial_thresh=self.curl_partial_angle,
+        )
 
     # helper history push
     def _push_hist(self, hist, key, entry):
@@ -186,7 +193,7 @@ class GestureClassifier:
         # fallback
         return candidate, 1.0
 
-    def classify_single(self, hand: HandData):
+    def classify_single(self, hand: HandData, hand_index: int = 0):
         # identical feature calc as earlier
         now = hand.timestamp
         lm = hand.landmarks
@@ -199,33 +206,13 @@ class GestureClassifier:
         hand.pinch_distance = dist(lm[4], lm[8])
         hand.thumb_angle = angle(lm[4], lm[3], lm[2])
 
-        finger_defs = [
-            (8, 7, 6, 5),  # index
-            (12, 11, 10, 9),  # middle
-            (16, 15, 14, 13),  # ring
-            (20, 19, 18, 17),  # pinky
-        ]
-        curl_scores = []
-        curls = []
-        curl_states = []
-        curl_angles = []
-        for tip, dip, pip, mcp in finger_defs:
-            pip_angle, dip_angle = finger_joint_angles(lm, tip, dip, pip, mcp)
-            total_angle = pip_angle + dip_angle
-            state, score = finger_curl_state(
-                pip_angle, dip_angle, self.curl_strong_angle, self.curl_partial_angle
-            )
-            curl_angles.append(total_angle)
-            curl_states.append(state)
-            curl_scores.append(score)
-            curls.append(state != "extended")
-        hand.curl_angles = curl_angles
-        hand.curl_states = curl_states
-        hand.curl_scores = curl_scores
-        hand.curls = curls
-        hand.curled_count = sum(1 for c in curls if c)
-        hand.extended_count = 4 - hand.curled_count
-        index_curled, middle_curled, ring_curled, pinky_curled = curls
+        feature_key = f"{hand.handedness or 'Unknown'}_{hand_index}"
+        self.feature_extractor.process_hand(hand, feature_key)
+
+        curls = list(hand.curls or [])
+        while len(curls) < 4:
+            curls.append(False)
+        index_curled, middle_curled, ring_curled, pinky_curled = curls[:4]
         hand.wrist["x"] = lm[0].x
         hand.wrist["y"] = lm[0].y
         hand.wrist["z"] = lm[0].z
@@ -254,8 +241,17 @@ class GestureClassifier:
         vx, vy = self._compute_velocity(self.wrist_history[key])
         pinch_v = self._compute_pinch_velocity(self.pinch_history[key])
 
+        finger_states = hand.finger_states_map or {}
+        thumb_state = finger_states.get("thumb", "extended")
+        others_curled = all(
+            (finger_states.get(name, "extended") != "extended")
+            for name in ("index", "middle", "ring", "pinky")
+        )
+
         static = "unknown"
-        if hand.curled_count >= 3:
+        if thumb_state == "extended" and others_curled:
+            static = "thumbs_up"
+        elif hand.curled_count >= 3:
             static = "fist"
         elif hand.extended_count >= 3:
             static = "open_palm"
@@ -342,8 +338,8 @@ class GestureClassifier:
 
     def classify_hands(self, hands):
         # single-hand compute
-        for h in hands:
-            self.classify_single(h)
+        for idx, h in enumerate(hands):
+            self.classify_single(h, idx)
 
         # two-hand zoom logic
         if self.enable_two_hand_zoom and len(hands) >= 2:

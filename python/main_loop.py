@@ -2,7 +2,7 @@ import time
 import cv2
 import threading
 from queue import Queue, Empty
-from collections import deque, defaultdict
+from collections import deque
 
 from HandTracker import HandTracker
 from GestureClassifier import GestureClassifier
@@ -19,14 +19,11 @@ from Boundaries import (
     # draw_debug_reference_plane,
     annotate_fingertip_plane_status,
 )
-from Angles import FingerAngleBuffer, compute_smoothed_finger_angles
-
 
 # --------------------------------------------------------
 # Queue for latest frame only (overwrite when full)
 # --------------------------------------------------------
 FRAME_QUEUE_MAX = 1
-ANGLE_BUFFERS = defaultdict(lambda: FingerAngleBuffer(size=5))
 
 
 # --------------------------------------------------------
@@ -111,17 +108,15 @@ def classifier_thread(frame_queue, stop_event, cfg):
 
     print("[PY] Classifier thread started.")
 
-    buffer = FingerAngleBuffer(size=5)
-
     while not stop_event.is_set():
         try:
             frame, hands, timestamp, fps = frame_queue.get(timeout=0.1)
         except Empty:
             continue
 
-        new_cfg = cfg_watcher.check_reload()
-        if new_cfg and new_cfg != current_cfg:
-            current_cfg = new_cfg
+        latest_cfg = cfg_watcher.get_config() or current_cfg
+        if latest_cfg is not current_cfg:
+            current_cfg = latest_cfg
         classifier.update_config(current_cfg)
 
         # Update correct dt per hand
@@ -145,16 +140,7 @@ def classifier_thread(frame_queue, stop_event, cfg):
                 for i, h in enumerate(hands):
                     draw_hand_debug(frame, h, offset_y=i * 180)
 
-                    smoothed = compute_smoothed_finger_angles(
-                        h.landmarks, buffer, handedness=h.handedness
-                    )
-
-                    buffer_key = f"{h.handedness or 'Unknown'}_{i}"
-                    draw_joint_angle_labels(
-                        frame,
-                        h,
-                        ANGLE_BUFFERS[buffer_key],
-                    )
+                    draw_joint_angle_labels(frame, h)
                     # 1. Build the rotated plane (e.g., -20 degrees tilts it "forward" to cut the fingers)
                     # plane_pt, plane_normal = build_and_draw_tilted_plane(
                     #     frame, h, tilt_angle_deg=-20
